@@ -1,0 +1,7 @@
+export enum ServiceOrderStatus {
+  CREATED = 'CREATED',
+  ASSIGNED = 'ASSIGNED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  FINALIZED = 'FINALIZED',
+  CLOSED = 'CLOSED',
+}

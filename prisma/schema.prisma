@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ServiceLevelDb {
+  STANDARD
+  PREMIUM
+  CRITICAL
+}
+
+enum ServicePriorityDb {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceOrderStatusDb {
+  CREATED
+  ASSIGNED
+  IN_PROGRESS
+  FINALIZED
+  CLOSED
+}
+
+enum VisitStatusDb {
+  SCHEDULED
+  CANCELLED
+}
+
+model ServiceOrderRecord {
+  id                   String               @id @db.Uuid
+  customerId           String               @db.Uuid
+  contractId           String               @db.Uuid
+  serviceAddress       String
+  serviceLevel         ServiceLevelDb
+  priority             ServicePriorityDb
+  status               ServiceOrderStatusDb
+  assignedTechnicianId String?              @db.Uuid
+  createdAt            DateTime
+  finalizedAt          DateTime?
+  closedAt             DateTime?
+  updatedAt            DateTime             @updatedAt
+  version              Int                  @default(1)
+
+  activities    ServiceActivityRecord[]
+  materials     MaterialUsageRecord[]
+  requiredTasks RequiredTaskRecord[]
+
+  @@index([createdAt, id])
+  @@index([status, createdAt, id])
+  @@index([customerId])
+  @@map("service_orders")
+}
+
+model ServiceActivityRecord {
+  id             String             @id @db.Uuid
+  serviceOrderId String             @db.Uuid
+  description    String
+  workedMinutes  Int
+  performedAt    DateTime
+  serviceOrder   ServiceOrderRecord @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([serviceOrderId])
+  @@map("service_activities")
+}
+
+model MaterialUsageRecord {
+  id             String             @id @db.Uuid
+  serviceOrderId String             @db.Uuid
+  materialId     String             @db.Uuid
+  quantity       Int
+  serviceOrder   ServiceOrderRecord @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([serviceOrderId])
+  @@map("material_usages")
+}
+
+model RequiredTaskRecord {
+  id             String             @id @db.Uuid
+  serviceOrderId String             @db.Uuid
+  name           String
+  completedAt    DateTime?
+  serviceOrder   ServiceOrderRecord @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([serviceOrderId])
+  @@map("required_tasks")
+}
+
+model OutboxEventRecord {
+  id          String    @id @db.Uuid
+  eventName   String
+  aggregateId String    @db.Uuid
+  payload     Json
+  occurredAt  DateTime
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+}
+
+model TechnicianRecord {
+  id       String        @id @db.Uuid
+  name     String
+  isActive Boolean
+  visits   VisitRecord[]
+
+  @@map("visit_technicians")
+}
+
+model VisitRecord {
+  id             String        @id @db.Uuid
+  serviceOrderId String        @db.Uuid
+  technicianId   String        @db.Uuid
+  startsAt       DateTime
+  endsAt         DateTime
+  status         VisitStatusDb
+  cancelledAt    DateTime?
+
+  technician TechnicianRecord @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  @@index([technicianId, status, startsAt])
+  @@index([serviceOrderId, status])
+  @@map("visits")
+}
