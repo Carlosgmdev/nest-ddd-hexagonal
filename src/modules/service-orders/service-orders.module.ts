@@ -79,5 +79,6 @@ import { ServiceOrdersController } from './infrastructure/http/service-orders.co
     { provide: SERVICE_ORDER_REPOSITORY, useClass: PrismaServiceOrderRepository },
     { provide: SERVICE_ORDER_QUERY, useClass: PrismaServiceOrderQuery },
   ],
+  exports: [GetServiceOrderUseCase],
 })
 export class ServiceOrdersModule {}

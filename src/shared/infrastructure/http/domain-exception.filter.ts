@@ -23,6 +23,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
   private resolveStatus(code: string): number {
     const statuses: Record<string, HttpStatus> = {
+      TECHNICIAN_NOT_FOUND: HttpStatus.NOT_FOUND,
+      INVALID_TECHNICIAN: HttpStatus.UNPROCESSABLE_ENTITY,
+      VISIT_NOT_FOUND: HttpStatus.NOT_FOUND,
+      INVALID_VISIT: HttpStatus.UNPROCESSABLE_ENTITY,
+      INVALID_TIME_SLOT: HttpStatus.UNPROCESSABLE_ENTITY,
+      TECHNICIAN_UNAVAILABLE: HttpStatus.CONFLICT,
       SERVICE_ORDER_NOT_FOUND: HttpStatus.NOT_FOUND,
       REQUIRED_TASK_NOT_FOUND: HttpStatus.NOT_FOUND,
       SERVICE_ORDER_INVALID_STATE: HttpStatus.CONFLICT,

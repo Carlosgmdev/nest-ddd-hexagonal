@@ -1,403 +1,240 @@
 # nest-ddd-hexagonal
 
-API de operaciones de servicio — DDD y arquitectura hexagonal con NestJS.
+Proyecto educativo para aprender **Domain-Driven Design (DDD) y arquitectura hexagonal con TypeScript y NestJS**. Es una API REST construida como un monolito modular, con PostgreSQL y Prisma como adaptadores de persistencia.
 
-Proyecto de referencia para implementar **Domain-Driven Design de manera profesional y pragmática** en una API REST de NestJS.
+El objetivo es comprender dónde colocar cada responsabilidad, cómo orientar las dependencias y cómo probar el núcleo de la aplicación sin depender del framework o de una base de datos. Los módulos `service-orders` y `visits` proporcionan ejemplos concretos para practicar estas decisiones.
 
-El ejemplo implementa el bounded context **Service Operations** del dominio de órdenes de servicio utilizado en la guía de DDD: creación de orden, asignación de técnico, actividades, materiales, tareas obligatorias, finalización y cierre.
+El repositorio evoluciona durante el aprendizaje. Las decisiones documentadas describen la implementación actual y sus límites, y sirven como material de estudio.
 
-## Qué intenta demostrar
+## Qué se practica
 
-- El **dominio no depende de NestJS, Prisma, HTTP ni PostgreSQL**.
-- La **capa de aplicación tampoco depende de NestJS**: sus casos de uso reciben puertos mediante constructores normales.
-- Las reglas críticas viven dentro del `ServiceOrder` aggregate.
-- Los **casos de uso orquestan**; no duplican reglas del dominio.
-- Los adaptadores REST y Prisma están fuera del core.
-- Los comandos usan un **Repository Port**; las lecturas usan un **Query Port** pragmático.
-- `ServiceOrderClosed` se persiste en una tabla **Outbox** dentro de la misma transacción que el aggregate.
-- No existe un `GenericRepository` ni un `BaseEntity`; el dominio compartido solo contiene mecanismos transversales.
-- La separación de capas busca proteger decisiones del dominio sin convertir cada línea en una abstracción.
+- Modelar comportamiento e invariantes con entidades, un agregado, un objeto de valor y un servicio de dominio.
+- Coordinar operaciones mediante casos de uso independientes de NestJS.
+- Definir puertos y conectar adaptadores HTTP, Prisma e integración entre módulos.
+- Componer las dependencias en módulos de Nest mediante tokens y fábricas.
+- Separar modelos de dominio, DTOs HTTP y registros de persistencia.
+- Persistir eventos con Outbox y detectar escrituras concurrentes en un agregado.
+- Probar reglas, casos de uso y contratos de adaptadores con distintos niveles de aislamiento.
 
-## Arquitectura
+## Arquitectura y dirección de dependencias
 
-```text
-HTTP / REST
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ Inbound Adapter                             │
-│ ServiceOrdersController                    │
-└───────────────────┬─────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────┐
-│ Application                                 │
-│ Create / Assign / AddActivity / Finalize... │
-│                                             │
-│ Ports:                                      │
-│ - ServiceOrderRepository                    │
-│ - ServiceOrderQuery                         │
-└───────────────────┬─────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────┐
-│ Domain                                      │
-│ ServiceOrder Aggregate                      │
-│ Invariants / Status / Priority / Events     │
-└───────────────────▲─────────────────────────┘
-                    │
-         ports implemented by
-                    │
-┌───────────────────┴─────────────────────────┐
-│ Outbound Adapters                           │
-│ PrismaServiceOrderRepository                │
-│ PrismaServiceOrderQuery                     │
-│ PostgreSQL + Outbox                         │
-└─────────────────────────────────────────────┘
+Cada módulo organiza su código en tres capas:
+
+| Capa             | Responsabilidad                                      | Ejemplos del repositorio                                                    |
+| ---------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| `domain`         | Representar conceptos y proteger reglas del negocio  | `ServiceOrder`, `Technician`, `Visit`, `TimeSlot`, `TechnicianAvailability` |
+| `application`    | Coordinar operaciones y declarar contratos de salida | Casos de uso y puertos de repositorio, consulta e integración               |
+| `infrastructure` | Adaptar tecnologías y contratos externos al núcleo   | Controladores, DTOs, repositorios Prisma y adaptador entre contextos        |
+
+El núcleo está formado por `domain` y `application`. Estas capas usan TypeScript y APIs estándar de Node.js; no importan NestJS, Prisma ni adaptadores de infraestructura.
+
+El siguiente diagrama representa dependencias de código. La flecha significa «depende de»:
+
+```mermaid
+flowchart LR
+    HTTP[Adaptador HTTP] --> APP[Casos de uso]
+    APP --> DOMAIN[Modelo de dominio]
+    APP --> PORTS[Puertos de aplicación]
+    DB[Adaptador Prisma] --> PORTS
+    DB --> DOMAIN
+    INTEGRATION[Adaptador de integración] --> PORTS
+    DB --> PRISMA[Prisma / PostgreSQL]
 ```
 
-La regla de dependencia es simple: **las capas externas pueden conocer a las internas; el dominio no conoce infraestructura**.
+Durante una solicitud, el flujo puede ir desde el controlador hasta PostgreSQL. La dirección de las dependencias permite que el caso de uso invoque un repositorio a través de un puerto sin importar su implementación Prisma. Esto es **inversión de dependencias**.
 
-## Estructura
+Los controladores llaman directamente a los casos de uso y actúan como adaptadores de entrada. Los contratos de salida sí se expresan mediante interfaces; no hay una interfaz de entrada adicional para cada caso de uso.
+
+## Estructura del proyecto
 
 ```text
 src/
+├── main.ts                         # Bootstrap HTTP y configuración global
+├── app.module.ts                   # Composición de la aplicación
+├── app.controller.ts               # Endpoint de estado
 ├── shared/
-│   ├── domain/
-│   │   ├── aggregate-root.ts
-│   │   ├── domain-error.ts
-│   │   └── domain-event.ts
+│   ├── domain/                     # AggregateRoot, DomainError y DomainEvent
 │   └── infrastructure/
-│       ├── http/
-│       └── prisma/
-│
-└── modules/service-orders/
-    ├── domain/
-    │   ├── model/
-    │   │   └── service-order.ts
-    │   ├── events/
-    │   └── errors/
-    │
-    ├── application/
-    │   ├── ports/
-    │   └── use-cases/
-    │
-    └── infrastructure/
-        ├── http/
-        └── persistence/
+│       ├── http/                   # Traducción de errores a HTTP
+│       └── prisma/                 # Cliente Prisma y ciclo de conexión
+└── modules/
+    ├── service-orders/
+    │   ├── domain/                 # Modelo, eventos y errores
+    │   ├── application/
+    │   │   ├── ports/
+    │   │   └── use-cases/
+    │   ├── infrastructure/
+    │   │   ├── http/               # Controlador y DTOs
+    │   │   └── persistence/        # Repositorio y consultas Prisma
+    │   └── service-orders.module.ts
+    └── visits/
+        ├── domain/                 # Modelos, errores y servicio de dominio
+        ├── application/
+        │   ├── ports/
+        │   └── use-cases/
+        ├── infrastructure/
+        │   ├── http/               # Controladores y DTOs
+        │   ├── persistence/        # Repositorios Prisma
+        │   └── integration/        # Adaptador hacia service-orders
+        └── visits.module.ts
+
+prisma/                             # Esquema y migraciones SQL
+test/                              # Tests de dominio, aplicación y adaptadores
+.github/workflows/ci.yml             # Tests y build en CI
 ```
 
-### Por qué `shared` es tan pequeño
+`shared` reúne mecanismos compartidos. Los modelos específicos permanecen dentro de su contexto; no existe un repositorio genérico compartido para todas las entidades.
 
-`shared` solo contiene mecanismos realmente transversales (`DomainEvent`, `AggregateRoot`, Prisma base y filtro HTTP). No contiene `Customer`, `Material`, `Technician`, `Money`, etc. Esos conceptos deben pertenecer a su contexto y evolucionar de manera independiente.
+## Cómo se conectan las piezas
 
-## Modelo de dominio
+Los casos de uso reciben sus dependencias por constructor y no necesitan decoradores de Nest:
 
-Estados:
+```ts
+export class RegisterTechnicianUseCase {
+  constructor(private readonly repository: TechnicianRepository) {}
 
-```text
-CREATED ──assignTechnician──► ASSIGNED
-                                │
-                                ├──addActivity/registerMaterial──► IN_PROGRESS
-                                │                                  │
-                                │                                  └──finalize──► FINALIZED
-                                │                                                  │
-                                └──────────────────────────────────────────────────└──close──► CLOSED
-```
-
-Invariantes implementadas:
-
-1. No se puede registrar trabajo sin técnico asignado.
-2. `workedMinutes` debe ser mayor que cero.
-3. La cantidad de un material debe ser un entero positivo.
-4. No se puede finalizar sin actividades.
-5. No se puede finalizar mientras existan tareas obligatorias pendientes.
-6. Solo una orden `IN_PROGRESS` se puede finalizar.
-7. Solo una orden `FINALIZED` se puede cerrar.
-8. Una orden finalizada o cerrada no acepta modificaciones operativas.
-9. La prioridad se deriva del SLA (`ServiceLevel`) dentro del dominio.
-
-## Bounded contexts externos
-
-Este proyecto **no intenta meter Inventory, Dispatching y Billing en el mismo modelo**.
-
-La relación conceptual es:
-
-```text
-Dispatching ── TechnicianAssigned ──► Service Operations
-
-Service Operations ── ServiceOrderClosed ──► Inventory
-                                          └─► Billing
-```
-
-`ServiceOrderClosed` contiene solo el contrato de integración necesario:
-
-```json
-{
-  "serviceOrderId": "...",
-  "contractId": "...",
-  "workedMinutes": 120,
-  "materials": [{ "materialId": "...", "quantity": 2 }],
-  "closedAt": "..."
+  async execute(command: RegisterTechnicianCommand): Promise<string> {
+    const technician = Technician.register(command);
+    await this.repository.insert(technician);
+    return technician.id;
+  }
 }
 ```
 
-Inventory es responsable de sus propias reglas de stock. Billing es responsable de calcular precio, impuestos y condiciones del contrato. `ServiceOrder` no intenta manipular sus tablas ni sus modelos.
+`TechnicianRepository` es una interfaz de aplicación. `TECHNICIAN_REPOSITORY` es un símbolo que permite identificar esa dependencia durante la ejecución, porque las interfaces de TypeScript no existen en JavaScript.
 
-## Outbox
+`VisitsModule` conecta el puerto con el adaptador y construye el caso de uso:
 
-Cuando `close()` registra `ServiceOrderClosedEvent`, el repositorio Prisma guarda:
+```ts
+providers: [
+  {
+    provide: TECHNICIAN_REPOSITORY,
+    useClass: PrismaTechnicianRepository,
+  },
+  {
+    provide: RegisterTechnicianUseCase,
+    inject: [TECHNICIAN_REPOSITORY],
+    useFactory: (repository: TechnicianRepository) => new RegisterTechnicianUseCase(repository),
+  },
+];
+```
 
-1. el nuevo estado del aggregate; y
-2. el evento en `outbox_events`
+Los módulos de Nest son el punto de composición: conocen las implementaciones concretas y las ensamblan. Los controladores reciben los casos de uso ya construidos.
 
-dentro de **la misma transacción de PostgreSQL**.
+## Integración entre contextos
 
-Esto evita el fallo clásico:
+Los dos contextos se ejecutan dentro del mismo proceso y comparten una base de datos. Sus modelos y contratos se organizan en módulos separados.
+
+`visits` declara el puerto `ServiceOrderLookup` con la información que necesita del otro contexto. Su adaptador `ServiceOrderLookupAdapter` invoca `GetServiceOrderUseCase`, exportado por `ServiceOrdersModule`, y transforma la respuesta al contrato local.
 
 ```text
-DB actualizada ✅
-Evento publicado ❌
+ScheduleVisitUseCase
+    → ServiceOrderLookup
+    → ServiceOrderLookupAdapter
+    → GetServiceOrderUseCase
 ```
 
-El proyecto deja deliberadamente el transporte del Outbox fuera del core. En producción se agrega un worker que lee eventos pendientes y los publica a Kafka/RabbitMQ/SNS/SQS, marcando `publishedAt` al confirmar el broker.
+La dependencia concreta entre contextos queda en la composición y el adaptador de infraestructura. El caso de uso de visitas depende del contrato local. La comunicación actual es síncrona dentro del proceso; no hay microservicios, broker ni consumidores de eventos implementados.
 
-## Por qué el repositorio guarda el aggregate completo
+## Decisiones de implementación
 
-El adaptador Prisma usa una estrategia de **snapshot del aggregate**: actualiza el root y reemplaza sus colecciones hijas dentro de una transacción.
+### Modelo con comportamiento y casos de uso que coordinan
 
-Es una decisión pragmática para un aggregate moderado y mantiene simples los casos de uso. Si una orden pudiera tener decenas de miles de hijos, convendría rediseñar el límite del aggregate o utilizar persistencia incremental. No se debe introducir complejidad antes de necesitarla.
+Las entidades y objetos de valor validan sus invariantes y exponen operaciones. Los casos de uso cargan datos, comprueban condiciones que requieren consultar puertos, invocan el modelo y persisten el resultado.
 
-## Concurrencia y contratos de lectura
+`ServiceOrder` utiliza `AggregateRoot` para registrar eventos. En `visits`, `TimeSlot` encapsula el intervalo temporal y `TechnicianAvailability` evalúa disponibilidad a partir de los datos que recibe. Los modelos de ese contexto no heredan de `AggregateRoot` ni generan eventos actualmente.
 
-Las órdenes nuevas se insertan con `version = 1`. Cada actualización comprueba la versión cargada y la incrementa dentro de la misma transacción que guarda las colecciones y el Outbox. Un conflicto devuelve HTTP 409 (`SERVICE_ORDER_CONCURRENCY_CONFLICT`); el cliente debe consultar de nuevo la orden antes de decidir si repite su operación. La versión del objeto y sus eventos pendientes solo se actualizan después del commit.
+### Validación en las fronteras y dentro del núcleo
 
-El listado devuelve `{ items, nextCursor? }`, con 25 elementos por defecto y un máximo de 100. Para continuar, envía ambos campos de `nextCursor`:
+Los DTOs usan `class-validator`, `class-transformer` y decoradores de Swagger dentro de `infrastructure/http`. El `ValidationPipe` global transforma entradas y rechaza propiedades no admitidas.
 
-```http
-GET /api/service-orders?limit=25&afterId=<uuid>&afterCreatedAt=<ISO-8601>
-```
+El dominio también valida sus reglas para proteger invocaciones desde otras entradas. Los controladores convierten las fechas HTTP a `Date` cuando corresponde. En visitas, proporcionan `now` al caso de uso; todavía no existe una abstracción de reloj.
 
-Conserva el mismo filtro `status` y codifica los parámetros en la URL. El orden es `createdAt DESC, id DESC`, incluyendo un desempate estable cuando varias órdenes comparten fecha.
+`DomainExceptionFilter` traduce códigos de errores del dominio a respuestas HTTP. El núcleo expresa errores sin elegir códigos HTTP.
 
-Las tareas requieren técnico asignado; completarlas nuevamente durante la etapa operativa conserva su primera fecha. Los usos repetidos del mismo material son registros independientes. Cerrar nuevamente una orden devuelve conflicto.
+### Modelos de persistencia separados
 
-El dominio valida UUIDs, textos normalizados, minutos (1–1440 por actividad), cantidades (1–100000 por uso), hasta 30 tareas y fechas coherentes. La rehidratación también valida la consistencia del snapshot. Las colecciones públicas son snapshots congelados; las fechas son copias independientes.
+Los registros Prisma representan cómo se guardan los datos. Los adaptadores los convierten en modelos de dominio mediante métodos de rehidratación y traducen el modelo al escribir.
 
-En bases existentes, aplica la nueva migración antes de iniciar esta versión:
+En `service-orders`, el repositorio guarda un snapshot del agregado: persiste la raíz y reemplaza las colecciones hijas dentro de una transacción. Esta estrategia simplifica el ejemplo y supone colecciones de tamaño moderado.
+
+### Lecturas según la necesidad de cada contexto
+
+`service-orders` separa el puerto de repositorio para modificar agregados y `ServiceOrderQuery` para obtener vistas y listados. Las consultas Prisma construyen esas vistas sin rehidratar el agregado. El listado usa paginación por cursor.
+
+Es una separación de lectura y escritura dentro de la misma aplicación y base de datos. No incluye buses de comandos ni proyecciones asíncronas. `visits` consulta técnicos mediante su repositorio y no tiene un puerto de lectura separado.
+
+### Concurrencia y Outbox con alcance concreto
+
+El repositorio de `service-orders` aplica control de concurrencia optimista mediante una versión. En cada actualización comprueba e incrementa esa versión dentro de la transacción. El estado persistido del objeto y sus eventos pendientes se reconocen después del commit.
+
+El evento de cierre se guarda en `outbox_events` dentro de la misma transacción que el agregado. Esto permite persistir ambos de forma atómica. El repositorio no incluye un worker que publique esos eventos ni consumidores; el transporte queda pendiente.
+
+Los repositorios de `visits` no implementan ese control de versiones. La programación consulta disponibilidad antes de insertar, sin una transacción que proteja toda la operación. Solicitudes simultáneas pueden competir por un horario o una orden; esas garantías requieren trabajo adicional.
+
+## Estrategia de pruebas
+
+La herramienta de ejecución es **Jest**, con `ts-jest` para TypeScript. **Supertest** permite probar las rutas HTTP de Nest.
+
+| Pruebas actuales          | Qué verifican                                       | Dependencias usadas                          |
+| ------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| Dominio                   | Comportamiento, invariantes y límites del modelo    | Clases de dominio, sin Nest ni base de datos |
+| Aplicación                | Coordinación y errores del caso de uso probado      | Repositorios simulados                       |
+| HTTP de visitas           | Rutas, DTOs, códigos HTTP y casos de uso conectados | Nest real y puertos en memoria               |
+| Adaptador entre contextos | Traducción del contrato y manejo de errores         | Caso de uso externo simulado                 |
+| Persistencia y consultas  | Mapeo, filtros y contrato de las operaciones Prisma | Cliente Prisma simulado                      |
+
+Los tests actuales no requieren PostgreSQL ni cubren un recorrido completo contra una base real. Los tests HTTP abren puertos locales. La suite de CI genera el cliente Prisma, ejecuta tests y compila; no levanta una base de datos.
 
 ```bash
-npm run db:deploy
+npm test -- --runInBand
+npm run test:watch
+npm run test:cov
 ```
 
-## Preparación
+La existencia de pruebas por capas no implica cobertura exhaustiva de todos los casos de uso ni valida el comportamiento transaccional real de PostgreSQL.
 
-Requisitos:
+## Ejecutar el proyecto
 
-- Node.js 22+
-- Docker / Docker Compose
-- npm
+Requisitos: Node.js 22 o superior, npm y Docker Compose para la base local.
 
 ```bash
 cp .env.example .env
-docker compose up -d
 npm install
+docker compose up -d --wait
 npm run prisma:generate
 npm run db:deploy
 npm run start:dev
 ```
 
-Swagger:
+Docker Compose inicia PostgreSQL 16. La API se ejecuta localmente con Nest. `.env.example` contiene la conexión de desarrollo y el puerto predeterminado `3000`.
 
-```text
-http://localhost:3000/docs
-```
+- Swagger y exploración de rutas: `http://localhost:3000/docs`.
+- Estado de la API: `GET http://localhost:3000/api/health`.
+- Prefijo global de las rutas: `/api`.
 
-Health:
+El endpoint de estado devuelve una respuesta estática; no comprueba la conexión a PostgreSQL.
 
-```text
-GET http://localhost:3000/api/health
-```
+## Comandos de trabajo
 
-## Flujo de ejemplo
+| Comando                   | Propósito                                             |
+| ------------------------- | ----------------------------------------------------- |
+| `npm run start:dev`       | Ejecutar la API con recompilación al cambiar archivos |
+| `npm run build`           | Compilar la aplicación                                |
+| `npm run lint`            | Revisar el código con ESLint                          |
+| `npm run format`          | Aplicar Prettier a los archivos configurados          |
+| `npm run prisma:generate` | Generar el cliente desde el esquema Prisma            |
+| `npm run db:migrate`      | Crear y aplicar migraciones durante el desarrollo     |
+| `npm run db:deploy`       | Aplicar las migraciones existentes                    |
+| `npm run db:studio`       | Inspeccionar la base mediante Prisma Studio           |
 
-### 1. Crear una orden
+## Recorrido de lectura sugerido
 
-```http
-POST /api/service-orders
-Content-Type: application/json
+1. Seguir `RegisterTechnicianDto` → `TechniciansController` → `RegisterTechnicianUseCase` → `Technician` para entender una entrada completa.
+2. Revisar `TechnicianRepository`, `PrismaTechnicianRepository` y `VisitsModule` para observar la inversión de dependencias y su composición.
+3. Leer `TimeSlot`, `TechnicianAvailability` y `ScheduleVisitUseCase` para distinguir reglas del modelo y coordinación con puertos.
+4. Seguir `ServiceOrderLookupAdapter` para estudiar la integración entre contextos.
+5. Revisar `ServiceOrder` y su repositorio Prisma para estudiar agregado, rehidratación, concurrencia y Outbox.
+6. Comparar los tests de cada capa para identificar qué verifica cada nivel y qué dependencias sustituye.
 
-{
-  "customerId": "11111111-1111-4111-8111-111111111111",
-  "contractId": "22222222-2222-4222-8222-222222222222",
-  "serviceAddress": "Av. Industria 1200, Planta 2",
-  "serviceLevel": "PREMIUM",
-  "requiredTasks": [
-    { "name": "Validate electrical insulation" },
-    { "name": "Capture final measurements" }
-  ]
-}
-```
-
-Respuesta:
-
-```json
-{ "id": "<service-order-id>" }
-```
-
-### 2. Consultar la orden para obtener los IDs de tareas
-
-```http
-GET /api/service-orders/{id}
-```
-
-### 3. Asignar técnico
-
-La API recibe el **resultado** de Dispatching, no intenta incorporar el modelo completo de ese contexto.
-
-```http
-POST /api/service-orders/{id}/technician-assignment
-
-{
-  "technicianId": "33333333-3333-4333-8333-333333333333"
-}
-```
-
-### 4. Registrar actividad
-
-```http
-POST /api/service-orders/{id}/activities
-
-{
-  "description": "Replaced damaged pressure sensor",
-  "workedMinutes": 90
-}
-```
-
-### 5. Registrar material utilizado
-
-```http
-POST /api/service-orders/{id}/material-usages
-
-{
-  "materialId": "44444444-4444-4444-8444-444444444444",
-  "quantity": 2
-}
-```
-
-Esto **no descuenta inventario**. La responsabilidad del stock pertenece al contexto Inventory.
-
-### 6. Completar tareas obligatorias
-
-```http
-POST /api/service-orders/{id}/required-tasks/{taskId}/complete
-```
-
-### 7. Finalizar
-
-```http
-POST /api/service-orders/{id}/finalize
-```
-
-Si existen tareas pendientes, el aggregate rechaza la operación.
-
-### 8. Cerrar
-
-```http
-POST /api/service-orders/{id}/close
-```
-
-Se registra atómicamente `service-orders.service-order.closed.v1` en el Outbox.
-
-## Decisiones deliberadas
-
-### Application services delgados
-
-Ejemplo conceptual:
-
-```ts
-const order = await repository.findById(id);
-order.finalize();
-await repository.save(order);
-```
-
-El caso de uso coordina. La regla **"puede finalizarse"** permanece en el aggregate.
-
-### Inyección de dependencias fuera de aplicación
-
-Los casos de uso son clases TypeScript sin `@Injectable()` ni `@Inject()`. Reciben `ServiceOrderRepository` o `ServiceOrderQuery` por constructor, sin conocer el adaptador concreto.
-
-`ServiceOrdersModule` es el lugar donde se conectan las piezas: registra los adaptadores Prisma para los tokens de los puertos y construye cada caso de uso mediante `useFactory` e `inject`.
-
-```ts
-{
-  provide: AddRequiredTaskUseCase,
-  inject: [SERVICE_ORDER_REPOSITORY],
-  useFactory: (repository: ServiceOrderRepository) =>
-    new AddRequiredTaskUseCase(repository),
-}
-```
-
-Los tokens son símbolos de JavaScript independientes de Nest. Las interfaces describen los contratos para TypeScript; los tokens permiten identificar las dependencias durante la ejecución. Los controladores reciben los casos de uso ya construidos.
-
-### DTOs HTTP no entran al dominio
-
-Los decoradores de `class-validator` y Swagger viven en `infrastructure/http`. El dominio no sabe que existe REST.
-
-### Prisma models no son entidades de dominio
-
-`ServiceOrderRecord` es una representación de persistencia. `ServiceOrder` es el modelo del negocio. El mapper vive en el adaptador Prisma.
-
-### Repository para escritura, Query Port para lectura
-
-No es CQRS completo. Solo evita forzar al aggregate a servir pantallas/listados para los que no fue diseñado.
-
-### Sin abstracciones prematuras
-
-No hay:
-
-- `IUseCase<TRequest, TResponse>` genérico;
-- `BaseRepository<T>`;
-- `BaseController`;
-- Event Bus interno obligatorio;
-- mediador solo para evitar llamar una clase directamente;
-- una interfaz por cada clase.
-
-Se agregan cuando resuelven un problema real, no para cumplir un diagrama.
-
-## Qué agregaría antes de producción real
-
-Dependiendo del producto:
-
-1. autenticación/autorización y actor del comando;
-2. observabilidad estructurada, correlation IDs y tracing;
-3. publisher real del Outbox + idempotencia en consumidores;
-4. métricas y alertas;
-5. rate limits si la API es pública;
-6. tests de integración contra PostgreSQL/Testcontainers;
-7. OpenAPI response schemas completos;
-8. estrategia de migraciones/rollback acorde al proceso de despliegue;
-9. políticas específicas para reasignación de técnicos;
-10. ACLs para sistemas legacy cuando el lenguaje externo no coincide con el modelo propio.
-
-## Tests
-
-```bash
-npm test
-```
-
-Los tests demuestran dos ideas importantes:
-
-- reglas del dominio probadas sin levantar Nest ni PostgreSQL;
-- casos de uso probados con un adaptador en memoria.
-
-## Regla práctica para extender el proyecto
-
-Antes de crear una carpeta/clase nueva, pregunta:
-
-1. ¿Es una regla del negocio? → `domain`.
-2. ¿Coordina un caso de uso? → `application`.
-3. ¿Habla HTTP, DB, broker o sistema externo? → `infrastructure`.
-4. ¿Pertenece realmente a otro bounded context? → no lo metas en `service-orders`; define una integración explícita.
-
-Ese criterio suele ser más útil que perseguir una estructura de carpetas “perfecta”.
+Al extender el proyecto, ubica cada responsabilidad según su motivo de cambio: reglas en `domain`, coordinación y puertos en `application`, y protocolos o tecnologías en `infrastructure`. Los módulos de Nest conectan esas piezas.
