@@ -24,7 +24,7 @@ export class Visit {
     readonly id: string,
     readonly serviceOrderId: string,
     readonly technicianId: string,
-    readonly timeSlot: TimeSlot,
+    private timeSlotValue: TimeSlot,
     private statusValue: VisitStatus,
     private cancelledAtValue?: Date,
   ) {}
@@ -35,6 +35,10 @@ export class Visit {
 
   get cancelledAt(): Date | undefined {
     return this.cancelledAtValue ? new Date(this.cancelledAtValue) : undefined;
+  }
+
+  get timeSlot(): TimeSlot {
+    return this.timeSlotValue;
   }
 
   static schedule(props: ScheduleVisitProps): Visit {
@@ -87,12 +91,27 @@ export class Visit {
       throw new InvalidVisitError('Cannot cancel an already cancelled visit');
     }
 
-    if (now >= this.timeSlot.startsAt) {
+    if (now >= this.timeSlotValue.startsAt) {
       throw new InvalidVisitError('Cannot cancel an already started visit');
     }
 
     this.statusValue = VisitStatus.CANCELLED;
     this.cancelledAtValue = new Date(now);
+  }
+
+  reschedule(newTimeSlot: TimeSlot, now: Date): void {
+    if (!isValidDate(now)) throw new InvalidVisitError('Invalid date');
+
+    if (this.statusValue !== VisitStatus.SCHEDULED)
+      throw new InvalidVisitError('Only can reschedule a scheduled visit');
+
+    if (now >= this.timeSlotValue.startsAt)
+      throw new InvalidVisitError('Cannot reschedule an already started visit');
+
+    if (newTimeSlot.startsAt <= now)
+      throw new InvalidVisitError('New start time must be in the future');
+
+    this.timeSlotValue = newTimeSlot;
   }
 }
 

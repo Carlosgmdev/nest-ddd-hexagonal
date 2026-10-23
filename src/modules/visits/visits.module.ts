@@ -20,6 +20,7 @@ import { CancelVisitUseCase } from './application/use-cases/cancel-visit.use-cas
 import { ScheduleVisitUseCase } from './application/use-cases/schedule-visit.use-case';
 import { TechniciansController } from './infrastructure/http/technicians.controller';
 import { VisitsController } from './infrastructure/http/visits.controller';
+import { RescheduleVisitUseCase } from './application/use-cases/reschedule-visit.use-case';
 
 @Module({
   imports: [ServiceOrdersModule],
@@ -76,6 +77,15 @@ import { VisitsController } from './infrastructure/http/visits.controller';
         serviceOrders: ServiceOrderLookup,
         availability: TechnicianAvailability,
       ) => new ScheduleVisitUseCase(technicians, visits, serviceOrders, availability),
+    },
+    {
+      provide: RescheduleVisitUseCase,
+      inject: [VISIT_REPOSITORY, TECHNICIAN_REPOSITORY, TechnicianAvailability],
+      useFactory: (
+        visits: VisitRepository,
+        technicians: TechnicianRepository,
+        technicianAvailability: TechnicianAvailability,
+      ) => new RescheduleVisitUseCase(visits, technicians, technicianAvailability),
     },
   ],
 })

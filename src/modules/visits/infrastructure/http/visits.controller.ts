@@ -3,6 +3,8 @@ import { ApiCreatedResponse, ApiNoContentResponse, ApiTags } from '@nestjs/swagg
 import { CancelVisitUseCase } from '../../application/use-cases/cancel-visit.use-case';
 import { ScheduleVisitUseCase } from '../../application/use-cases/schedule-visit.use-case';
 import { ScheduleVisitDto } from './dto/schedule-visit.dto';
+import { RescheduleVisitDto } from './dto/reschedule-visit.dto';
+import { RescheduleVisitUseCase } from '../../application/use-cases/reschedule-visit.use-case';
 
 @ApiTags('visits')
 @Controller('visits')
@@ -10,6 +12,7 @@ export class VisitsController {
   constructor(
     private readonly scheduleVisit: ScheduleVisitUseCase,
     private readonly cancelVisit: CancelVisitUseCase,
+    private readonly rescheduleVisit: RescheduleVisitUseCase,
   ) {}
 
   @Post()
@@ -30,5 +33,20 @@ export class VisitsController {
   @ApiNoContentResponse({ description: 'Visit cancelled' })
   async cancel(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.cancelVisit.execute(id, new Date());
+  }
+
+  @Post(':id/reschedule')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({ description: 'Visit rescheduled' })
+  async reschedule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RescheduleVisitDto,
+  ): Promise<void> {
+    await this.rescheduleVisit.execute({
+      visitId: id,
+      startsAt: new Date(dto.startsAt),
+      endsAt: new Date(dto.endsAt),
+      now: new Date(),
+    });
   }
 }
