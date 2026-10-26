@@ -13,6 +13,7 @@ export abstract class AggregateRoot {
 
   protected clearDomainEvents(eventIds: readonly string[]): void {
     const acknowledged = new Set(eventIds);
+
     for (let index = this.domainEvents.length - 1; index >= 0; index -= 1) {
       if (acknowledged.has(this.domainEvents[index].eventId)) this.domainEvents.splice(index, 1);
     }
