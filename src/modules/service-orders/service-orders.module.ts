@@ -20,6 +20,13 @@ import { ListServiceOrdersUseCase } from './application/use-cases/list-service-o
 import { PrismaServiceOrderRepository } from './infrastructure/persistence/prisma-service-order.repository';
 import { PrismaServiceOrderQuery } from './infrastructure/persistence/prisma-service-order.query';
 import { ServiceOrdersController } from './infrastructure/http/service-orders.controller';
+import { RegisterServiceOrderClaimUseCase } from './application/use-cases/register-service-order-claim.use-case';
+import {
+  SERVICE_ORDER_CLAIM_REPOSITORY,
+  ServiceOrderClaimRepository,
+} from './application/ports/service-order-claim.repository';
+import { ServiceOrderClaimability } from './domain/services/service-order-claimability';
+import { PrismaServiceOrderClaimRepository } from './infrastructure/persistence/prisma-service-order-claim.repository';
 
 @Module({
   controllers: [ServiceOrdersController],
@@ -76,8 +83,27 @@ import { ServiceOrdersController } from './infrastructure/http/service-orders.co
       inject: [SERVICE_ORDER_QUERY],
       useFactory: (query: ServiceOrderQuery) => new ListServiceOrdersUseCase(query),
     },
+    {
+      provide: RegisterServiceOrderClaimUseCase,
+      inject: [SERVICE_ORDER_REPOSITORY, ServiceOrderClaimability, SERVICE_ORDER_CLAIM_REPOSITORY],
+      useFactory: (
+        serviceOrderRepository: ServiceOrderRepository,
+        ServiceOrderClaimability: ServiceOrderClaimability,
+        serviceOrderClaimRepository: ServiceOrderClaimRepository,
+      ) =>
+        new RegisterServiceOrderClaimUseCase(
+          serviceOrderRepository,
+          ServiceOrderClaimability,
+          serviceOrderClaimRepository,
+        ),
+    },
+    {
+      provide: ServiceOrderClaimability,
+      useFactory: () => new ServiceOrderClaimability(),
+    },
     { provide: SERVICE_ORDER_REPOSITORY, useClass: PrismaServiceOrderRepository },
     { provide: SERVICE_ORDER_QUERY, useClass: PrismaServiceOrderQuery },
+    { provide: SERVICE_ORDER_CLAIM_REPOSITORY, useClass: PrismaServiceOrderClaimRepository },
   ],
   exports: [GetServiceOrderUseCase],
 })

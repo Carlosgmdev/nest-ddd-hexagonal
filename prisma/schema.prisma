@@ -32,6 +32,12 @@ enum VisitStatusDb {
   CANCELLED
 }
 
+enum ServiceOrderClaimStatusDb {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model ServiceOrderRecord {
   id                   String               @id @db.Uuid
   customerId           String               @db.Uuid
@@ -50,6 +56,7 @@ model ServiceOrderRecord {
   activities    ServiceActivityRecord[]
   materials     MaterialUsageRecord[]
   requiredTasks RequiredTaskRecord[]
+  claims        ServiceOrderClaimRecord[]
 
   @@index([createdAt, id])
   @@index([status, createdAt, id])
@@ -127,4 +134,19 @@ model VisitRecord {
   @@index([technicianId, status, startsAt])
   @@index([serviceOrderId, status])
   @@map("visits")
+}
+
+model ServiceOrderClaimRecord {
+  id               String                    @id @db.Uuid
+  serviceOrderId   String                    @db.Uuid
+  description      String
+  createdAt        DateTime
+  status           ServiceOrderClaimStatusDb
+  resolutionReason String?
+  resolvedAt       DateTime?
+
+  serviceOrder ServiceOrderRecord @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict)
+
+  @@index([serviceOrderId])
+  @@map("service_order_claims")
 }
